@@ -1,0 +1,8 @@
+{
+  "name": "Remix Orléans Local",
+  "description": "A modern, mobile-first local business discovery directory and community platform for Orléans and Ottawa.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

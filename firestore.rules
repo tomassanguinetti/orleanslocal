@@ -1,0 +1,224 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Core Helper Primitives ---
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'Tomas.Sanguinetti@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // --- Entity Validation Helpers ---
+    function isValidBusiness(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 120 &&
+             data.category is string && data.category.size() > 0 && data.category.size() <= 60 &&
+             data.address is string && data.address.size() > 0 && data.address.size() <= 200 &&
+             data.neighbourhood is string && data.neighbourhood.size() > 0 && data.neighbourhood.size() <= 60 &&
+             data.phone is string && data.phone.size() <= 40;
+    }
+
+    function isValidReview(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.businessId is string && isValidId(data.businessId) &&
+             data.authorId is string && data.authorId == request.auth.uid &&
+             data.authorName is string && data.authorName.size() > 0 && data.authorName.size() <= 100 &&
+             data.rating is number && data.rating >= 1 && data.rating <= 5 &&
+             data.text is string && data.text.size() > 0 && data.text.size() <= 1000;
+    }
+
+    function isValidSubmission(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.businessName is string && data.businessName.size() > 0 && data.businessName.size() <= 100 &&
+             data.category is string && data.category.size() <= 60 &&
+             data.neighbourhood is string && data.neighbourhood.size() <= 60 &&
+             data.address is string && data.address.size() <= 200 &&
+             data.phone is string && data.phone.size() <= 40 &&
+             data.email is string && data.email.size() <= 100 &&
+             data.description is string && data.description.size() <= 1200 &&
+             data.status in ['pending', 'approved', 'rejected'];
+    }
+
+    function isValidClaim(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.businessId is string && isValidId(data.businessId) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.userEmail is string && data.userEmail.size() <= 100 &&
+             data.claimNotes is string && data.claimNotes.size() <= 600 &&
+             data.status in ['pending', 'approved', 'rejected'];
+    }
+
+    function isValidSavedPlace(data) {
+      return data.businessId is string && isValidId(data.businessId) &&
+             data.savedAt is string && data.savedAt.size() <= 60;
+    }
+
+    function isValidEvent(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 200 &&
+             data.category is string && data.category.size() > 0 && data.category.size() <= 100;
+    }
+
+    function isValidNews(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 250 &&
+             data.category is string && data.category.size() > 0 && data.category.size() <= 100;
+    }
+
+    function isValidGroup(data) {
+      return data.id is string && isValidId(data.id) &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+             data.category is string && data.category.size() > 0 && data.category.size() <= 100;
+    }
+
+    // --- Match Rules ---
+
+    // 1. Businesses Directory Collection (Publicly readable, admin managed)
+    match /businesses/{businessId} {
+      allow get: if isValidId(businessId);
+      allow list: if true;
+      allow create: if isValidId(businessId) && (isAdmin() || isValidBusiness(incoming()));
+      allow update: if isValidId(businessId) && (
+        isAdmin() ||
+        isValidBusiness(incoming()) ||
+        (isSignedIn() && incoming().diff(existing()).affectedKeys().hasOnly(['reviewCount', 'rating']))
+      );
+      allow delete: if isValidId(businessId) && isAdmin();
+    }
+
+    // 2. Reviews Collection
+    match /reviews/{reviewId} {
+      allow get: if isValidId(reviewId);
+      allow list: if true;
+      allow create: if isValidId(reviewId) &&
+                       isSignedIn() &&
+                       isValidReview(incoming()) &&
+                       (exists(/databases/$(database)/documents/businesses/$(incoming().businessId)) ||
+                        incoming().businessId in [
+                          'yemen-gate-restaurant',
+                          'delicious-steak-wine',
+                          'beyond-cafe',
+                          'pure-brew',
+                          'affinity-dental',
+                          'morningstar-dental',
+                          'napa-autopro-precision',
+                          'toptek-automotive',
+                          'john-the-plumber-orleans',
+                          'environmental-plumbing',
+                          'hair-bistro-salon',
+                          'two-brothers-barbershop',
+                          'a-foot-above-fitness',
+                          'gracie-barra-orleans',
+                          'gloucester-veterinary-hospital',
+                          'raw-fed-and-furry',
+                          'kalel-windows-doors',
+                          'distinctive-bathrooms-kitchens',
+                          'grandmaitre-virgo-evans',
+                          'trudel-law-office'
+                        ]);
+      allow update: if isValidId(reviewId) &&
+                       isSignedIn() &&
+                       (resource.data.authorId == request.auth.uid || isAdmin()) &&
+                       isValidReview(incoming()) &&
+                       incoming().authorId == existing().authorId &&
+                       incoming().businessId == existing().businessId;
+      allow delete: if isValidId(reviewId) &&
+                       isSignedIn() &&
+                       (resource.data.authorId == request.auth.uid || isAdmin());
+    }
+
+    // 3. Business Submissions Collection
+    match /submissions/{submissionId} {
+      allow get: if isValidId(submissionId) && (isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isValidId(submissionId) &&
+                       isSignedIn() &&
+                       isValidSubmission(incoming()) &&
+                       incoming().status == 'pending';
+      allow update: if isValidId(submissionId) && (
+        isAdmin() ||
+        (isSignedIn() && resource.data.userId == request.auth.uid &&
+         isValidSubmission(incoming()) &&
+         incoming().userId == existing().userId &&
+         incoming().diff(existing()).affectedKeys().hasOnly(['businessName', 'category', 'neighbourhood', 'address', 'phone', 'email', 'website', 'description', 'services']))
+      );
+      allow delete: if isValidId(submissionId) && isAdmin();
+    }
+
+    // 4. Claims Collection
+    match /claims/{claimId} {
+      allow get: if isValidId(claimId) && (isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid));
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isValidId(claimId) &&
+                       isSignedIn() &&
+                       isValidClaim(incoming()) &&
+                       incoming().status == 'pending';
+      allow update: if isValidId(claimId) && isAdmin();
+      allow delete: if isValidId(claimId) && isAdmin();
+    }
+
+    // 5. User Saved Places Subcollection
+    match /users/{userId}/saved/{businessId} {
+      allow read, write: if isValidId(userId) && isValidId(businessId) &&
+                            isSignedIn() &&
+                            request.auth.uid == userId;
+    }
+
+    // 6. Community Events Collection
+    match /events/{eventId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(eventId) && (isAdmin() || isValidEvent(incoming()));
+      allow delete: if isValidId(eventId) && (isAdmin() || eventId == 'events');
+    }
+
+    // 7. Community News Collection
+    match /news/{newsId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(newsId) && (isAdmin() || isValidNews(incoming()));
+      allow delete: if isValidId(newsId) && isAdmin();
+    }
+
+    // 8. Community Groups Collection
+    match /groups/{groupId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(groupId) && (isAdmin() || isValidGroup(incoming()));
+      allow delete: if isValidId(groupId) && isAdmin();
+    }
+
+    // 9. Admin Registry Collection
+    match /admins/{userId} {
+      allow read: if isSignedIn();
+      allow write: if false; // Configured server-side or via console
+    }
+
+    // 10. Connection health test document
+    match /test/{testId} {
+      allow get: if true;
+    }
+  }
+}

@@ -1,0 +1,21 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Momo Trust Display', 'Plus Jakarta Sans', system-ui, sans-serif;
+  }
+  
+  /* All the paragraph change to Momo but not bolded */
+  p {
+    font-family: 'Momo Trust Display', system-ui, sans-serif;
+    font-weight: 400 !important;
+  }
+}
+
+.font-dela {
+  font-family: 'Dela Gothic One', cursive, sans-serif;
+}
+
+.font-momo {
+  font-family: 'Momo Trust Display', system-ui, sans-serif;
+}
